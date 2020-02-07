@@ -1,5 +1,8 @@
 #include "abstract_table_generator.hpp"
 
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/classification.hpp>
+
 #include "benchmark_config.hpp"
 #include "benchmark_table_encoder.hpp"
 #include "hyrise.hpp"
@@ -19,7 +22,8 @@ void to_json(nlohmann::json& json, const TableGenerationMetrics& metrics) {
           {"binary_caching_duration", metrics.binary_caching_duration.count()},
           {"sort_duration", metrics.sort_duration.count()},
           {"store_duration", metrics.store_duration.count()},
-          {"index_duration", metrics.index_duration.count()}};
+          {"index_duration", metrics.index_duration.count()},
+          {"sort_order_by_table", metrics.sort_order_by_table}};
 }
 
 BenchmarkTableInfo::BenchmarkTableInfo(const std::shared_ptr<Table>& table) : table(table) {}
@@ -38,42 +42,78 @@ void AbstractTableGenerator::generate_and_store() {
   /**
    * Sort tables if a sort order was defined by the benchmark
    */
-  const auto& sort_order_by_table = _sort_order_by_table();
+
+  auto sort_order_by_table = _sort_order_by_table();
+
+
+  auto env_table_sort_order = std::getenv("TABLE_SORT_ORDER");
+  if (env_table_sort_order != nullptr) {
+    // read table sorting configuration from environment variable
+    // format: "<table1>:<column1>,<column2>;<table2>:<column1>,<column2>;..."
+    // atm we can only sort (cluster) after 1 column per table
+    const auto table_sort_order = std::string(env_table_sort_order);
+    std::cout << "read sorting order: " << table_sort_order << std::endl;
+
+    SortOrderByTable result;
+    if (!table_sort_order.empty()) {
+      std::vector<std::string> table_columns_pairs;
+      boost::algorithm::split(table_columns_pairs, table_sort_order, boost::is_any_of(";"));
+
+      for (const auto& table_columns_pair : table_columns_pairs) {
+        std::vector<std::string> table_and_columns;
+        boost::algorithm::split(table_and_columns, table_columns_pair, boost::is_any_of(":"));
+        Assert(table_and_columns.size() == 2, "expected exactly two entries, but got " + std::to_string(table_and_columns.size()));
+
+        std::vector<std::string> columns;
+        boost::algorithm::split(columns, table_and_columns[1], boost::is_any_of(","));
+        result[table_and_columns[0]] = columns;
+      }
+    }
+
+    sort_order_by_table =  result;
+  }
+
+  metrics.sort_order_by_table = sort_order_by_table;
+
   if (!sort_order_by_table.empty()) {
     std::cout << "- Sorting tables" << std::endl;
 
-    for (const auto& [table_name, column_name] : sort_order_by_table) {
-      const auto order_by_mode = OrderByMode::Ascending;  // currently fixed to ascending
-      std::cout << "-  Sorting '" << table_name << "' by '" << column_name << "' " << std::flush;
-      Timer per_table_timer;
+    for (const auto& [table_name, column_names] : sort_order_by_table) {
 
-      // We sort the tables after their creation so that we are independent of the order in which they are filled.
-      // For this, we use the sort operator. Because it returns a `const Table`, we need to recreate the table and
-      // migrate the sorted chunks to that table.
+      for (auto it = column_names.rbegin(); it != column_names.rend(); ++it ) {
+        const std::string column_name = *it;
+        const auto order_by_mode = OrderByMode::Ascending;  // currently fixed to ascending
+        std::cout << "-  Sorting '" << table_name << "' by '" << column_name << "' " << std::flush;
+        Timer per_table_timer;
 
-      auto& table = table_info_by_name[table_name].table;
-      auto table_wrapper = std::make_shared<TableWrapper>(table);
-      table_wrapper->execute();
-      auto sort = std::make_shared<Sort>(table_wrapper, table->column_id_by_name(column_name), order_by_mode,
-                                         _benchmark_config->chunk_size);
-      sort->execute();
-      const auto immutable_sorted_table = sort->get_output();
-      table = std::make_shared<Table>(immutable_sorted_table->column_definitions(), TableType::Data,
-                                      Chunk::DEFAULT_SIZE, UseMvcc::Yes);
-      const auto chunk_count = immutable_sorted_table->chunk_count();
-      const auto column_count = immutable_sorted_table->column_count();
-      for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
-        const auto chunk = immutable_sorted_table->get_chunk(chunk_id);
-        auto mvcc_data = std::make_shared<MvccData>(chunk->size(), CommitID{0});
-        Segments segments{};
-        for (auto column_id = ColumnID{0}; column_id < column_count; ++column_id) {
-          segments.emplace_back(chunk->get_segment(column_id));
+        // We sort the tables after their creation so that we are independent of the order in which they are filled.
+        // For this, we use the sort operator. Because it returns a `const Table`, we need to recreate the table and
+        // migrate the sorted chunks to that table.
+
+        auto& table = table_info_by_name[table_name].table;
+        auto table_wrapper = std::make_shared<TableWrapper>(table);
+        table_wrapper->execute();
+        auto sort = std::make_shared<Sort>(table_wrapper, table->column_id_by_name(column_name), order_by_mode,
+                                           _benchmark_config->chunk_size);
+        sort->execute();
+        const auto immutable_sorted_table = sort->get_output();
+        table = std::make_shared<Table>(immutable_sorted_table->column_definitions(), TableType::Data,
+                                        Chunk::DEFAULT_SIZE, UseMvcc::Yes);
+        const auto chunk_count = immutable_sorted_table->chunk_count();
+        const auto column_count = immutable_sorted_table->column_count();
+        for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
+          const auto chunk = immutable_sorted_table->get_chunk(chunk_id);
+          auto mvcc_data = std::make_shared<MvccData>(chunk->size(), CommitID{0});
+          Segments segments{};
+          for (auto column_id = ColumnID{0}; column_id < column_count; ++column_id) {
+            segments.emplace_back(chunk->get_segment(column_id));
+          }
+          table->append_chunk(segments, mvcc_data);
+          table->get_chunk(chunk_id)->set_ordered_by({table->column_id_by_name(column_name), order_by_mode});
         }
-        table->append_chunk(segments, mvcc_data);
-        table->get_chunk(chunk_id)->set_ordered_by({table->column_id_by_name(column_name), order_by_mode});
-      }
 
-      std::cout << "(" << per_table_timer.lap_formatted() << ")" << std::endl;
+        std::cout << "(" << per_table_timer.lap_formatted() << ")" << std::endl;
+      }
     }
     metrics.sort_duration = timer.lap();
     std::cout << "- Sorting tables done (" << format_duration(metrics.sort_duration) << ")" << std::endl;

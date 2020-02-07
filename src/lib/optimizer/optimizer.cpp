@@ -96,6 +96,7 @@ std::shared_ptr<Optimizer> Optimizer::create_default_optimizer() {
 
   optimizer->add_rule(std::make_unique<ExpressionReductionRule>());
 
+  // TODO: uncomment
   optimizer->add_rule(std::make_unique<ChunkPruningRule>());
 
   // Run before the JoinOrderingRule so that the latter has simple (non-conjunctive) predicates. However, as the
@@ -131,6 +132,7 @@ std::shared_ptr<Optimizer> Optimizer::create_default_optimizer() {
   // Prune chunks after the BetweenCompositionRule ran, as `a >= 5 AND a <= 7` may not be prunable predicates while
   // `a BETWEEN 5 and 7` is. Also, run it after the PredicatePlacementRule, so that predicates are as close to the
   // StoredTableNode as possible where the ChunkPruningRule can work with them.
+  // TODO: uncomment
   optimizer->add_rule(std::make_unique<ChunkPruningRule>());
 
   // Bring predicates into the desired order once the PredicatePlacementRule has positioned them as desired
