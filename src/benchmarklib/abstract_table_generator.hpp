@@ -77,6 +77,10 @@ class AbstractTableGenerator {
   // Optionally, the benchmark may add constraints once the tables are generated / loaded from binary
   virtual void _add_constraints(std::unordered_map<std::string, BenchmarkTableInfo>& table_info_by_name) const;
 
+  //newly added
+  void _append_chunks(std::shared_ptr<Table> from, std::shared_ptr<Table> to);
+  std::shared_ptr<Table> _sort_table(std::shared_ptr<Table> table, const std::string& column_name, const ChunkOffset chunk_size);
+
   const std::shared_ptr<BenchmarkConfig> _benchmark_config;
 };
 
