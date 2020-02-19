@@ -32,7 +32,7 @@ AbstractTableGenerator::AbstractTableGenerator(const std::shared_ptr<BenchmarkCo
     : _benchmark_config(benchmark_config) {}
 
 
-std::shared_ptr<Table> AbstractTableGenerator::_sort_table(std::shared_ptr<Table> table, const std::string& column_name, const ChunkOffset chunk_size){
+std::shared_ptr<Table> AbstractTableGenerator::_sort_table(const std::shared_ptr<Table> table, const std::string& column_name, const ChunkOffset chunk_size){
   // We sort the tables after their creation so that we are independent of the order in which they are filled.
   // For this, we use the sort operator. Because it returns a `const Table`, we need to recreate the table and
   // migrate the sorted chunks to that table.
@@ -42,29 +42,19 @@ std::shared_ptr<Table> AbstractTableGenerator::_sort_table(std::shared_ptr<Table
   auto table_wrapper = std::make_shared<TableWrapper>(table);
   table_wrapper->execute();
   auto sort = std::make_shared<Sort>(table_wrapper, table->column_id_by_name(column_name), order_by_mode,
-                                     _benchmark_config->chunk_size);
+                                     chunk_size);
   sort->execute();
   const auto immutable_sorted_table = sort->get_output();
   auto result = std::make_shared<Table>(immutable_sorted_table->column_definitions(), TableType::Data,
                                   chunk_size, UseMvcc::Yes);
-  const auto chunk_count = immutable_sorted_table->chunk_count();
-  const auto column_count = immutable_sorted_table->column_count();
-  for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
-    //std::cout << "adding chunk " << chunk_id << std::endl;
-    const auto chunk = immutable_sorted_table->get_chunk(chunk_id);
-    auto mvcc_data = std::make_shared<MvccData>(chunk->size(), CommitID{0});
-    Segments segments{};
-    for (auto column_id = ColumnID{0}; column_id < column_count; ++column_id) {
-      segments.emplace_back(chunk->get_segment(column_id));
-    }
-    result->append_chunk(segments, mvcc_data);
-    result->last_chunk()->set_ordered_by({table->column_id_by_name(column_name), order_by_mode});
-  }
+  _append_chunks(immutable_sorted_table, result);
+
   return result;
 }
 
-void AbstractTableGenerator::_append_chunks(std::shared_ptr<Table> from, std::shared_ptr<Table> to) {
-  Assert(from->last_chunk()->ordered_by(), "from table needs to be sorted");
+void AbstractTableGenerator::_append_chunks(const std::shared_ptr<const Table> from, std::shared_ptr<Table> to) {
+  Assert(from->get_chunk(ChunkID{0})->ordered_by(), "from table needs to be sorted");
+  auto ordered_by = *(from->get_chunk(ChunkID{0})->ordered_by());
   const auto chunk_count = from->chunk_count();
   const auto column_count = from->column_count();
   for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
@@ -75,7 +65,7 @@ void AbstractTableGenerator::_append_chunks(std::shared_ptr<Table> from, std::sh
       segments.emplace_back(chunk->get_segment(column_id));
     }
     to->append_chunk(segments, mvcc_data);
-    to->last_chunk()->set_ordered_by(*(from->last_chunk()->ordered_by()));
+    to->last_chunk()->set_ordered_by(ordered_by);
   }
 }
 
@@ -135,7 +125,8 @@ void AbstractTableGenerator::generate_and_store() {
 
       // if we cluster after 2 dimensions, first sort in 100k chunks, then cluster into the given chunksize
       // else directly sort into the given chunksize
-      const auto sort_chunk_size = (column_names.size() == 1) ? _benchmark_config->chunk_size : Chunk::DEFAULT_SIZE;
+      //const auto sort_chunk_size = (column_names.size() == 1) ? _benchmark_config->chunk_size : Chunk::DEFAULT_SIZE;
+      const auto sort_chunk_size = _benchmark_config->chunk_size;
       auto mutable_sorted_table = _sort_table(table_info_by_name[table_name].table, column_names[0], sort_chunk_size);
       std::cout << "(" << per_table_timer.lap_formatted() << ")" << std::endl;
 
