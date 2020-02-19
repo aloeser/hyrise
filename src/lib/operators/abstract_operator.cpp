@@ -110,6 +110,11 @@ void AbstractOperator::set_transaction_context(const std::weak_ptr<TransactionCo
   _on_set_transaction_context(transaction_context);
 }
 
+void AbstractOperator::reset_transaction_context() {
+  _transaction_context = std::nullopt;
+  //TODO call _on_set_transaction_context?
+}
+
 void AbstractOperator::set_transaction_context_recursively(
     const std::weak_ptr<TransactionContext>& transaction_context) {
   set_transaction_context(transaction_context);
@@ -129,6 +134,10 @@ std::shared_ptr<AbstractOperator> AbstractOperator::mutable_input_right() const 
 std::shared_ptr<const AbstractOperator> AbstractOperator::input_left() const { return _input_left; }
 
 std::shared_ptr<const AbstractOperator> AbstractOperator::input_right() const { return _input_right; }
+
+void AbstractOperator::set_input_left(std::shared_ptr<const AbstractOperator> op) {
+  _input_left = op;
+}
 
 void AbstractOperator::set_parameters(const std::unordered_map<ParameterID, AllTypeVariant>& parameters) {
   _on_set_parameters(parameters);

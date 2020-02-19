@@ -97,7 +97,7 @@ std::shared_ptr<Optimizer> Optimizer::create_default_optimizer() {
   optimizer->add_rule(std::make_unique<ExpressionReductionRule>());
 
   // TODO: uncomment
-  optimizer->add_rule(std::make_unique<ChunkPruningRule>());
+  //optimizer->add_rule(std::make_unique<ChunkPruningRule>());
 
   // Run before the JoinOrderingRule so that the latter has simple (non-conjunctive) predicates. However, as the
   // JoinOrderingRule cannot handle UnionNodes (#1829), do not split disjunctions just yet.
@@ -133,7 +133,7 @@ std::shared_ptr<Optimizer> Optimizer::create_default_optimizer() {
   // `a BETWEEN 5 and 7` is. Also, run it after the PredicatePlacementRule, so that predicates are as close to the
   // StoredTableNode as possible where the ChunkPruningRule can work with them.
   // TODO: uncomment
-  optimizer->add_rule(std::make_unique<ChunkPruningRule>());
+  //optimizer->add_rule(std::make_unique<ChunkPruningRule>());
 
   // Bring predicates into the desired order once the PredicatePlacementRule has positioned them as desired
   optimizer->add_rule(std::make_unique<PredicateReorderingRule>());

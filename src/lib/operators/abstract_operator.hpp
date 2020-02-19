@@ -95,6 +95,9 @@ class AbstractOperator : public std::enable_shared_from_this<AbstractOperator>, 
   std::shared_ptr<TransactionContext> transaction_context() const;
   void set_transaction_context(const std::weak_ptr<TransactionContext>& transaction_context);
 
+  //TODO: remove
+  void reset_transaction_context();
+
   // Calls set_transaction_context on itself and both input operators recursively
   void set_transaction_context_recursively(const std::weak_ptr<TransactionContext>& transaction_context);
 
@@ -106,6 +109,7 @@ class AbstractOperator : public std::enable_shared_from_this<AbstractOperator>, 
   // Get the input operators.
   std::shared_ptr<const AbstractOperator> input_left() const;
   std::shared_ptr<const AbstractOperator> input_right() const;
+  void set_input_left(std::shared_ptr<const AbstractOperator> op);
 
   // Return input operators.
   // Note: these methods cast away const for the return shared_ptr of AbstractOperator.
