@@ -11,6 +11,7 @@
 #include "operators/table_wrapper.hpp"
 #include "storage/index/group_key/composite_group_key_index.hpp"
 #include "storage/index/group_key/group_key_index.hpp"
+#include "storage/segment_iterate.hpp"
 #include "utils/format_duration.hpp"
 #include "utils/timer.hpp"
 
@@ -167,9 +168,6 @@ void AbstractTableGenerator::generate_and_store() {
       } else {
         table_info_by_name[table_name].table = mutable_sorted_table;
       }
-
-
-
 
       /*
       for (auto it = column_names.rbegin(); it != column_names.rend(); ++it ) {
