@@ -83,7 +83,7 @@ void AbstractTableGenerator::generate_and_store() {
    */
 
   auto sort_order_by_table = _sort_order_by_table();
-
+  sort_order_by_table = {};
 
   auto env_table_sort_order = std::getenv("TABLE_SORT_ORDER");
   if (env_table_sort_order != nullptr) {
