@@ -47,6 +47,8 @@ Table::Table(const TableColumnDefinitions& column_definitions, const TableType t
     const auto chunk = get_chunk(chunk_id);
     if (!chunk) continue;
 
+    DebugAssert(chunk->size() > 0 || (type == TableType::Data && chunk_id == chunk_count - 1 && chunk->is_mutable()),
+                "Empty chunk other than mutable chunk at the end was found");
     DebugAssert(chunk->has_mvcc_data() == (_use_mvcc == UseMvcc::Yes),
                 "Supply MvccData for Chunks iff Table uses MVCC");
     DebugAssert(chunk->column_count() == column_count(), "Invalid Chunk column count");
@@ -151,13 +153,27 @@ void Table::append_mutable_chunk() {
 }
 
 uint64_t Table::row_count() const {
-  uint64_t ret = 0;
+  if (_type == TableType::References && _cached_row_count && !HYRISE_DEBUG) {
+    return *_cached_row_count;
+  }
+
+  uint64_t row_count = 0;
   const auto chunk_count = _chunks.size();
   for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
     const auto chunk = get_chunk(chunk_id);
-    if (chunk) ret += chunk->size();
+    if (chunk) row_count += chunk->size();
   }
-  return ret;
+
+  if (_type == TableType::References) {
+    // After being created, reference tables should never be changed again.
+    DebugAssert(!_cached_row_count || row_count == *_cached_row_count, "Size of reference table has changed");
+
+    // row_count() is called by AbstractOperator after the operator has finished to fill the performance data. As such,
+    // no synchronization is necessary.
+    _cached_row_count = row_count;
+  }
+
+  return row_count;
 }
 
 bool Table::empty() const { return row_count() == 0u; }
@@ -221,6 +237,16 @@ void Table::append_chunk(const Segments& segments, std::shared_ptr<MvccData> mvc
     for (const auto& segment : segments) {
       const auto is_reference_segment = std::dynamic_pointer_cast<ReferenceSegment>(segment) != nullptr;
       Assert(is_reference_segment == (_type == TableType::References), "Invalid Segment type");
+    }
+
+    // Check that existing chunks are not empty
+    const auto chunk_count = _chunks.size();
+    for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
+      const auto chunk = get_chunk(chunk_id);
+      if (!chunk) continue;
+
+      // An empty, mutable chunk at the end is fine, but in that case, append_chunk shouldn't have to be called.
+      DebugAssert(chunk->size() > 0, "append_chunk called on a table that has an empty chunk");
     }
   }
 

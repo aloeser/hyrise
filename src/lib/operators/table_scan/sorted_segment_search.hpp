@@ -9,6 +9,7 @@
 
 #include "all_type_variant.hpp"
 #include "constant_mappings.hpp"
+#include "storage/pos_lists/row_id_pos_list.hpp"
 #include "types.hpp"
 
 namespace opossum {
@@ -242,11 +243,13 @@ class SortedSegmentSearch {
       // decrease the effective sort range by excluding null values based on their ordering (first or last)
       if (_nullable) {
         if (_is_nulls_first) {
-          _begin = std::lower_bound(_begin, _end, false,
-                                [](const auto& segment_position, const auto& _) { return segment_position.is_null(); });
+          _begin = std::lower_bound(_begin, _end, false, [](const auto& segment_position, const auto& _) {
+            return segment_position.is_null();
+          });
         } else {
-          _end = std::lower_bound(_begin, _end, true,
-                              [](const auto& segment_position, const auto& _) { return !segment_position.is_null(); });
+          _end = std::lower_bound(_begin, _end, true, [](const auto& segment_position, const auto& _) {
+            return !segment_position.is_null();
+          });
         }
       }
       _set_begin_and_end_positions_for_between_scan();
@@ -274,7 +277,8 @@ class SortedSegmentSearch {
 
   template <typename ResultIteratorType>
   void _write_rows_to_matches(ResultIteratorType begin, ResultIteratorType end, const ChunkID chunk_id,
-                              PosList& matches, const std::shared_ptr<const PosList>& position_filter) const {
+                              RowIDPosList& matches,
+                              const std::shared_ptr<const AbstractPosList>& position_filter) const {
     if (begin == end) return;
 
     // General note: If the predicate is NotEquals, there might be two ranges that match.

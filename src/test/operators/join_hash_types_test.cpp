@@ -15,16 +15,18 @@ class JoinHashTypesTest : public BaseTest {};
 
 template <typename T, typename HashType>
 void test_hash_map(const std::vector<T>& values) {
-  Partition<T> elements;
+  Partition<T> partition;
   for (ChunkOffset i = ChunkOffset{0}; i < values.size(); ++i) {
     RowID row_id{ChunkID{17}, i};
-    elements.emplace_back(PartitionedElement<T>{row_id, static_cast<T>(values.at(i))});
+    partition.elements.emplace_back(PartitionedElement<T>{row_id, static_cast<T>(values.at(i))});
+    partition.null_values.emplace_back(false);
   }
 
-  auto hash_maps =
-      build<T, HashType>(RadixContainer<T>{std::make_shared<Partition<T>>(elements),
-                                           std::vector<size_t>{elements.size()}, std::make_shared<std::vector<bool>>()},
-                         JoinHashBuildMode::AllPositions);
+  // Build a BloomFilter that cannot be used to skip any entries by creating a BloomFilter with every value being false
+  // and using bitwise negation (~x).
+  auto bloom_filter = ~BloomFilter(BLOOM_FILTER_SIZE);
+
+  auto hash_maps = build<T, HashType>(RadixContainer<T>{partition}, JoinHashBuildMode::AllPositions, 0, bloom_filter);
 
   // With only one offset value passed, one hash map will be created
   EXPECT_EQ(hash_maps.size(), 1);
@@ -35,10 +37,10 @@ void test_hash_map(const std::vector<T>& values) {
   for (const auto& pos_list_pair : first_hash_map) {
     row_count += pos_list_pair.size();
   }
-  EXPECT_EQ(row_count, elements.size());
+  EXPECT_EQ(row_count, partition.elements.size());
 
   ChunkOffset offset = ChunkOffset{0};
-  for (const auto& element : elements) {
+  for (const auto& element : partition.elements) {
     const auto probe_value = element.value;
 
     const auto result_list = *first_hash_map.find(probe_value);
@@ -48,8 +50,8 @@ void test_hash_map(const std::vector<T>& values) {
   }
 }
 
-using DataTypes = ::testing::Types<int, float, double>;
-TYPED_TEST_SUITE(JoinHashTypesTest, DataTypes, );  // NOLINT(whitespace/parens)
+using JoinHashTypesTestDataTypes = ::testing::Types<int, float, double>;
+TYPED_TEST_SUITE(JoinHashTypesTest, JoinHashTypesTestDataTypes, );  // NOLINT(whitespace/parens)
 
 TYPED_TEST(JoinHashTypesTest, BuildSingleValueLargePosList) {
   int test_item_count = 500;
