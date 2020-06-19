@@ -35,6 +35,8 @@ class JoinHash : public AbstractJoinOperator {
 
   enum class OperatorSteps : uint8_t { Materialization, Clustering, Building, Probing, OutputWriting };
 
+  std::optional<size_t> _radix_bits;
+
  protected:
   std::shared_ptr<const Table> _on_execute() override;
   std::shared_ptr<AbstractOperator> _on_deep_copy(
@@ -44,7 +46,6 @@ class JoinHash : public AbstractJoinOperator {
   void _on_cleanup() override;
 
   std::unique_ptr<AbstractReadOnlyOperatorImpl> _impl;
-  std::optional<size_t> _radix_bits;
 
   template <typename LeftType, typename RightType>
   class JoinHashImpl;
