@@ -46,7 +46,7 @@ JoinHash::JoinHash(const std::shared_ptr<const AbstractOperator>& left,
                    const std::vector<OperatorJoinPredicate>& secondary_predicates,
                    const std::optional<size_t>& radix_bits)
     : AbstractJoinOperator(OperatorType::JoinHash, left, right, mode, primary_predicate, secondary_predicates,
-                           std::make_unique<OperatorPerformanceData<OperatorSteps>>()),
+                           std::make_unique<PerformanceData>()),
       _radix_bits(radix_bits) {}
 
 const std::string& JoinHash::name() const {
@@ -71,7 +71,6 @@ std::shared_ptr<AbstractOperator> JoinHash::_on_deep_copy(
 
 void JoinHash::_on_set_parameters(const std::unordered_map<ParameterID, AllTypeVariant>& parameters) {}
 
-template <typename T>
 size_t JoinHash::calculate_radix_bits(const size_t build_relation_size, const size_t probe_relation_size) {
   /*
     Setting number of bits for radix clustering:
@@ -178,6 +177,8 @@ std::shared_ptr<const Table> JoinHash::_on_execute() {
     output_column_order = OutputColumnOrder::BuildFirstProbeSecond;
   }
 
+  auto& join_hash_performance_data = static_cast<PerformanceData&>(*performance_data);
+
   resolve_data_type(build_column_type, [&](const auto build_data_type_t) {
     using BuildColumnDataType = typename decltype(build_data_type_t)::type;
     resolve_data_type(probe_column_type, [&](const auto probe_data_type_t) {
@@ -191,7 +192,7 @@ std::shared_ptr<const Table> JoinHash::_on_execute() {
       if constexpr (BOTH_ARE_STRING || NEITHER_IS_STRING) {
         if (!_radix_bits) {
           _radix_bits =
-              calculate_radix_bits<BuildColumnDataType>(build_input_table->row_count(), probe_input_table->row_count());
+              calculate_radix_bits(build_input_table->row_count(), probe_input_table->row_count());
         }
 
         // It needs to be ensured that the build partition does not get too large, because the
@@ -206,17 +207,14 @@ std::shared_ptr<const Table> JoinHash::_on_execute() {
         _impl = std::make_unique<JoinHashImpl<BuildColumnDataType, ProbeColumnDataType>>(
             *this, build_input_table, probe_input_table, _mode, adjusted_column_ids,
             _primary_predicate.predicate_condition, output_column_order, *_radix_bits,
-            static_cast<OperatorPerformanceData<JoinHash::OperatorSteps>&>(*performance_data),
-            std::move(adjusted_secondary_predicates));
+            join_hash_performance_data, std::move(adjusted_secondary_predicates));
       } else {
         Fail("Cannot join String with non-String column");
       }
     });
   });
 
-
   DebugAssert(_radix_bits, "Radix bits are not set.");
-  auto& join_hash_performance_data = static_cast<PerformanceData&>(*performance_data);
   join_hash_performance_data.radix_bits = *_radix_bits;
   join_hash_performance_data.right_input_is_build_side = build_hash_table_for_right_input;
   return _impl->_on_execute();
@@ -231,7 +229,7 @@ class JoinHash::JoinHashImpl : public AbstractJoinOperatorImpl {
                const std::shared_ptr<const Table>& probe_input_table, const JoinMode mode,
                const ColumnIDPair& column_ids, const PredicateCondition predicate_condition,
                const OutputColumnOrder output_column_order, const size_t radix_bits,
-               OperatorPerformanceData<JoinHash::OperatorSteps>& performance_data,
+               JoinHash::PerformanceData& performance_data,
                std::vector<OperatorJoinPredicate> secondary_predicates = {})
       : _join_hash(join_hash),
         _build_input_table(build_input_table),
@@ -593,5 +591,16 @@ class JoinHash::JoinHashImpl : public AbstractJoinOperatorImpl {
     return _join_hash._build_output_table(std::move(output_chunks));
   }
 };
+
+void JoinHash::PerformanceData::output_to_stream(std::ostream& stream,
+                                                           DescriptionMode description_mode) const {
+  OperatorPerformanceData<OperatorSteps>::output_to_stream(stream, description_mode);
+
+  const auto *const separator = description_mode == DescriptionMode::SingleLine ? " " : "\n";
+  stream << "Radix bits:" << separator << radix_bits;
+  if (right_input_is_build_side) {
+    stream << "." << separator <<  "Inputs have been flipped.";
+  }
+}
 
 }  // namespace opossum
