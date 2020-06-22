@@ -38,11 +38,11 @@ std::shared_ptr<Table> AbstractTableGenerator::_sort_table(const std::shared_ptr
   // For this, we use the sort operator. Because it returns a `const Table`, we need to recreate the table and
   // migrate the sorted chunks to that table.
 
-  const auto order_by_mode = OrderByMode::Ascending;
+  const auto sort_mode = SortMode::Ascending;
   //auto& table = table_info_by_name[table_name].table;
   auto table_wrapper = std::make_shared<TableWrapper>(table);
   table_wrapper->execute();
-  auto sort = std::make_shared<Sort>(table_wrapper, std::vector<SortColumnDefinition>{SortColumnDefinition(table->column_id_by_name(column_name), order_by_mode)},
+  auto sort = std::make_shared<Sort>(table_wrapper, std::vector<SortColumnDefinition>{SortColumnDefinition(table->column_id_by_name(column_name), sort_mode)},
                                      chunk_size);
   sort->execute();
   const auto immutable_sorted_table = sort->get_output();
@@ -54,8 +54,8 @@ std::shared_ptr<Table> AbstractTableGenerator::_sort_table(const std::shared_ptr
 }
 
 void AbstractTableGenerator::_append_chunks(const std::shared_ptr<const Table> from, std::shared_ptr<Table> to) {
-  Assert(from->get_chunk(ChunkID{0})->ordered_by(), "from table needs to be sorted");
-  auto ordered_by = *(from->get_chunk(ChunkID{0})->ordered_by());
+  Assert(!from->get_chunk(ChunkID{0})->sorted_by().empty(), "from table needs to be sorted");
+  auto sorted_by = from->get_chunk(ChunkID{0})->sorted_by();
   const auto chunk_count = from->chunk_count();
   const auto column_count = from->column_count();
   for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
@@ -66,7 +66,7 @@ void AbstractTableGenerator::_append_chunks(const std::shared_ptr<const Table> f
       segments.emplace_back(chunk->get_segment(column_id));
     }
     to->append_chunk(segments, mvcc_data);
-    to->last_chunk()->set_ordered_by(ordered_by);
+    to->last_chunk()->set_sorted_by(sorted_by);
   }
 }
 
@@ -118,7 +118,6 @@ void AbstractTableGenerator::generate_and_store() {
     std::cout << "- Sorting tables" << std::endl;
 
     for (const auto& [table_name, column_names] : sort_order_by_table) {
-
       Assert(column_names.size() == 1 || column_names.size() == 2, "you have to specify exactly one or two clustering dimensions");
 
       std::cout << "-  Sorting '" << table_name << "' by '" << column_names[0] << "' " << std::flush;
@@ -156,7 +155,7 @@ void AbstractTableGenerator::generate_and_store() {
             segments.emplace_back(chunk->get_segment(column_id));
           }
           new_table->append_chunk(segments, mvcc_data);
-          new_table->last_chunk()->set_ordered_by(*(mutable_sorted_table->last_chunk()->ordered_by()));
+          new_table->last_chunk()->set_sorted_by(mutable_sorted_table->last_chunk()->sorted_by());
           // append single chunk end
 
           auto sorted_table = _sort_table(new_table, column_names[1], _benchmark_config->chunk_size);

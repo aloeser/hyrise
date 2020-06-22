@@ -33,15 +33,30 @@ class JoinHash : public AbstractJoinOperator {
   template <typename T>
   static size_t calculate_radix_bits(const size_t build_relation_size, const size_t probe_relation_size);
 
-  enum class OperatorSteps : uint8_t { Materialization, Clustering, Building, Probing, OutputWriting };
-
   std::optional<size_t> _radix_bits;
+
+  enum class OperatorSteps : uint8_t {
+    BuildSideMaterializing,
+    ProbeSideMaterializing,
+    Clustering,
+    Building,
+    Probing,
+    OutputWriting
+  };
+
+  struct PerformanceData : public OperatorPerformanceData<OperatorSteps> {
+    void output_to_stream(std::ostream& stream, DescriptionMode description_mode) const;
+
+    size_t radix_bits{0};
+    // Initially, the left input is the build side and the right side is the probe side.
+    bool right_input_is_build_side{false};
+  };
 
  protected:
   std::shared_ptr<const Table> _on_execute() override;
   std::shared_ptr<AbstractOperator> _on_deep_copy(
-      const std::shared_ptr<AbstractOperator>& copied_input_left,
-      const std::shared_ptr<AbstractOperator>& copied_input_right) const override;
+      const std::shared_ptr<AbstractOperator>& copied_left_input,
+      const std::shared_ptr<AbstractOperator>& copied_right_input) const override;
   void _on_set_parameters(const std::unordered_map<ParameterID, AllTypeVariant>& parameters) override;
   void _on_cleanup() override;
 
