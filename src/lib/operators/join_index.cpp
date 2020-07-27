@@ -227,6 +227,7 @@ std::shared_ptr<const Table> JoinIndex::_on_execute() {
             _data_join_two_segments_using_index(probe_iter, probe_end, probe_chunk_id, index_chunk_id, index);
           });
         }
+
         index_joining_duration += timer.lap();
         join_index_performance_data.chunks_scanned_with_index++;
       } else {

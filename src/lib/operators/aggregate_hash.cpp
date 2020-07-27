@@ -82,6 +82,7 @@ namespace opossum {
 AggregateHash::AggregateHash(const std::shared_ptr<AbstractOperator>& in,
                              const std::vector<std::shared_ptr<AggregateExpression>>& aggregates,
                              const std::vector<ColumnID>& groupby_column_ids)
+
     : AbstractAggregateOperator(in, aggregates, groupby_column_ids,
                                 std::make_unique<OperatorPerformanceData<OperatorSteps>>()) {}
 
@@ -670,6 +671,7 @@ std::shared_ptr<const Table> AggregateHash::_on_execute() {
     }
     _write_groupby_output(pos_list);
   }
+
   step_performance_data.set_step_runtime(OperatorSteps::GroupByColumnsWriting, timer.lap());
 
   /*

@@ -51,6 +51,8 @@ class BenchmarkRunner : public Noncopyable {
   // If the query execution should be validated, this stores a pointer to the used SQLite instance
   std::shared_ptr<SQLiteWrapper> sqlite_wrapper;
 
+  const BenchmarkConfig _config;
+
  private:
   // Run benchmark in BenchmarkMode::Shuffled mode
   void _benchmark_shuffled();
@@ -69,9 +71,7 @@ class BenchmarkRunner : public Noncopyable {
   void _create_report(std::ostream& stream) const;
 
   // Converts the result of a SQL query into a JSON object
-  static nlohmann::json _sql_to_json(const std::string& sql);
-
-  const BenchmarkConfig _config;
+  static nlohmann::json _sql_to_json(const std::string& sql);  
 
   std::unique_ptr<AbstractBenchmarkItemRunner> _benchmark_item_runner;
   std::unique_ptr<AbstractTableGenerator> _table_generator;

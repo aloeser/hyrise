@@ -50,7 +50,6 @@ int main(int argc, const char* argv[]) {
   auto config = std::make_shared<BenchmarkConfig>(BenchmarkConfig::get_default_config());
   config->max_runs = 10;
   config->enable_visualization = false;
-  config->chunk_size = 100'000;
   config->cache_binary_tables = true;
 
   constexpr auto USE_PREPARED_STATEMENTS = false;
@@ -62,7 +61,7 @@ int main(int argc, const char* argv[]) {
   //
   if (BENCHMARK == "TPC-H") {
     SCALE_FACTOR = 1.0f;
-    config->max_runs = 100;
+    config->max_runs = 10;
     // const std::vector<BenchmarkItemID> tpch_query_ids_benchmark = {BenchmarkItemID{5}};
     // auto item_runner = std::make_ unique<TPCHBenchmarkItemRunner>(config, USE_PREPARED_STATEMENTS, SCALE_FACTOR, tpch_query_ids_benchmark);
     std::cout << "running tpch with factor" << SCALE_FACTOR << std::endl;
@@ -101,7 +100,6 @@ int main(int argc, const char* argv[]) {
   //
   else if (BENCHMARK == "JOB") {
     config->max_runs = 1;
-
     const auto table_path = "hyrise/imdb_data";
     const auto query_path = "hyrise/third_party/join-order-benchmark";
     const auto non_query_file_names = std::unordered_set<std::string>{"fkindexes.sql", "schema.sql"};
@@ -117,6 +115,5 @@ int main(int argc, const char* argv[]) {
   //
   //  /JOB
   //
-
   return 0;
 }

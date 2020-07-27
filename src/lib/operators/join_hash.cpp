@@ -59,6 +59,16 @@ std::string JoinHash::description(DescriptionMode description_mode) const {
   stream << AbstractJoinOperator::description(description_mode);
   stream << " Radix bits: " << (_radix_bits ? std::to_string(*_radix_bits) : "Unspecified");
 
+  /*
+  if (description_mode == DescriptionMode::SingleLine)  {
+    stream << " ";
+  } else {
+    stream << "\n";
+  }
+
+  stream << *performance_data;
+  */
+
   return stream.str();
 }
 
@@ -350,7 +360,7 @@ class JoinHash::JoinHashImpl : public AbstractJoinOperatorImpl {
       materialized_probe_column = materialize_input<ProbeColumnType, HashedType, false>(
           _probe_input_table, _column_ids.second, histograms_probe_column, _radix_bits, probe_side_bloom_filter,
           build_side_bloom_filter);
-    }    
+    }
     _performance.set_step_runtime(OperatorSteps::ProbeSideMaterializing, timer_materialization.lap());
 
     /**
