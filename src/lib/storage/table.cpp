@@ -29,6 +29,7 @@ Table::Table(const TableColumnDefinitions& column_definitions, const TableType t
       _type(type),
       _use_mvcc(use_mvcc),
       _target_chunk_size(type == TableType::Data ? target_chunk_size.value_or(Chunk::DEFAULT_SIZE) : Chunk::MAX_SIZE),
+      _insert_chunk_id(ChunkID{0}),
       _append_mutex(std::make_unique<std::mutex>()) {
   DebugAssert(target_chunk_size <= Chunk::MAX_SIZE, "Chunk size exceeds maximum");
   DebugAssert(type == TableType::Data || !target_chunk_size, "Must not set target_chunk_size for reference tables");
@@ -41,24 +42,22 @@ Table::Table(const TableColumnDefinitions& column_definitions, const TableType t
             use_mvcc) {
   _chunks = {chunks.begin(), chunks.end()};
 
-#if HYRISE_DEBUG
-  const auto chunk_count = _chunks.size();
-  for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
-    const auto chunk = get_chunk(chunk_id);
-    if (!chunk) continue;
+  if constexpr (HYRISE_DEBUG) {
+    const auto chunk_count = _chunks.size();
+    for (auto chunk_id = ChunkID{0}; chunk_id < chunk_count; ++chunk_id) {
+      const auto chunk = get_chunk(chunk_id);
+      if (!chunk) continue;
 
-    DebugAssert(chunk->size() > 0 || (type == TableType::Data && chunk_id == chunk_count - 1 && chunk->is_mutable()),
-                "Empty chunk other than mutable chunk at the end was found");
-    DebugAssert(chunk->has_mvcc_data() == (_use_mvcc == UseMvcc::Yes),
-                "Supply MvccData for Chunks iff Table uses MVCC");
-    DebugAssert(chunk->column_count() == column_count(), "Invalid Chunk column count");
+      Assert(chunk->size() > 0 || (type == TableType::Data && chunk_id == chunk_count - 1 && chunk->is_mutable()),
+             "Empty chunk other than mutable chunk at the end was found");
+      Assert(chunk->has_mvcc_data() == (_use_mvcc == UseMvcc::Yes), "Supply MvccData for Chunks iff Table uses MVCC");
+      Assert(chunk->column_count() == column_count(), "Invalid Chunk column count");
 
-    for (auto column_id = ColumnID{0}; column_id < column_count(); ++column_id) {
-      DebugAssert(chunk->get_segment(column_id)->data_type() == column_data_type(column_id),
-                  "Invalid Segment DataType");
+      for (auto column_id = ColumnID{0}; column_id < column_count(); ++column_id) {
+        Assert(chunk->get_segment(column_id)->data_type() == column_data_type(column_id), "Invalid Segment DataType");
+      }
     }
   }
-#endif
 }
 
 const TableColumnDefinitions& Table::column_definitions() const { return _column_definitions; }
@@ -134,7 +133,7 @@ void Table::append(const std::vector<AllTypeVariant>& values) {
   last_chunk->append(values);
 }
 
-void Table::append_mutable_chunk() {
+void Table::append_mutable_chunk(const bool insert_chunk) {
   Segments segments;
   for (const auto& column_definition : _column_definitions) {
     resolve_data_type(column_definition.data_type, [&](auto type) {
@@ -149,7 +148,17 @@ void Table::append_mutable_chunk() {
     mvcc_data = std::make_shared<MvccData>(_target_chunk_size, MvccData::MAX_COMMIT_ID);
   }
 
+  // Assumption: The caller of this function holds the append mutex (e.g., the Insert operator)
+  if (insert_chunk) {
+    _insert_chunk_id = chunk_count();
+  }
+
   append_chunk(segments, mvcc_data);
+}
+
+ChunkID Table::get_insert_chunk_id() const {
+  Assert(_insert_chunk_id < chunk_count(), "Invalid _insert_chunk_id: " + std::to_string(_insert_chunk_id));
+  return _insert_chunk_id;
 }
 
 uint64_t Table::row_count() const {

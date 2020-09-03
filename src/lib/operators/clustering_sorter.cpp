@@ -1,6 +1,7 @@
 #include "clustering_sorter.hpp"
 
 #include <memory>
+#include <unordered_set>
 #include <string>
 
 #include "concurrency/transaction_context.hpp"
@@ -13,13 +14,13 @@
 
 namespace opossum {
 
-ClusteringSorter::ClusteringSorter(const std::shared_ptr<const AbstractOperator>& referencing_table_op, std::shared_ptr<Table> table, const std::set<ChunkID>& chunk_ids, const ColumnID sort_column_id)
-    : AbstractReadWriteOperator{OperatorType::ClusteringSorter, referencing_table_op}, _table{table}, _chunk_ids{chunk_ids}, _sort_column_id{sort_column_id}, _num_locks{0}, _transaction_id{0} {
-      size_t num_rows = 0;
+ClusteringSorter::ClusteringSorter(const std::shared_ptr<const AbstractOperator>& referencing_table_op, std::shared_ptr<Table> table, const std::set<ChunkID>& chunk_ids, const ColumnID sort_column_id, std::unordered_set<ChunkID>& new_chunk_ids)
+    : AbstractReadWriteOperator{OperatorType::ClusteringSorter, referencing_table_op}, _table{table}, _chunk_ids{chunk_ids}, _sort_column_id{sort_column_id}, _new_chunk_ids{new_chunk_ids}, _num_locks{0}, _expected_num_locks{0}, _transaction_id{0} {
       for (const auto chunk_id : _chunk_ids) {
         const auto& chunk = _table->get_chunk(chunk_id);
         Assert(chunk, "chunk disappeared");
-        num_rows += chunk->size();
+        Assert(!chunk->is_mutable(), "ClusteringSorter expects only immutable chunks");
+        _expected_num_locks += chunk->size() - chunk->invalid_row_count();
       }
     }
 
@@ -79,7 +80,18 @@ std::shared_ptr<const Table> ClusteringSorter::_on_execute(std::shared_ptr<Trans
       _mark_as_failed();
       return nullptr;
     }
+
     invalid_row_index++;
+  }
+
+  if (_num_locks != _expected_num_locks) {
+    // potential race condition: Some row might be invalidated, but the chunk's invalid row counter not yet increased.
+    // Thus, comparing the invalid row counters is not sufficient to detect the invalidation, and this operator would unintentionally restore an invalidated row.
+    // Fix: a row that is invalidated is also locked - so we can check if we got exactly the expected number of locks
+    Assert(_num_locks < _expected_num_locks, "Bug");
+    std::cout << "Race condition detected and handled: row was invalidated, but the invalid row counter not yet increased. Expected " << _expected_num_locks  << " locks, but got " << _num_locks << std::endl;
+    _mark_as_failed();
+    return nullptr;
   }
 
   // no need to get locks for the sorted chunks, as they get inserted as completely new chunks
@@ -171,6 +183,8 @@ void ClusteringSorter::_on_commit_records(const CommitID commit_id) {
     std::shared_ptr<Chunk> table_chunk;
     {
       const auto append_lock = _table->acquire_append_mutex();
+      const auto new_chunk_id = _table->chunk_count();
+      _new_chunk_ids.insert(new_chunk_id);
       _table->append_chunk(segments, mvcc_data);
       table_chunk = _table->last_chunk();
       Assert(table_chunk, "Chunk disappeared");
@@ -178,13 +192,8 @@ void ClusteringSorter::_on_commit_records(const CommitID commit_id) {
 
     table_chunk->finalize();
 
-    Assert(!chunk->sorted_by().empty(), "chunk has no sorting information");
-    table_chunk->set_sorted_by(chunk->sorted_by());
-
-    // TODO (maybe): move encoding to disjoint_clusters_algo
-    ChunkEncoder::encode_chunk(table_chunk, _table->column_data_types(), EncodingType::Dictionary);
-    //Assert(chunk->pruning_statistics(), "chunk has no pruning statistics");
-    //table_chunk->set_pruning_statistics(*chunk->pruning_statistics());
+    Assert(!chunk->individually_sorted_by().empty(), "chunk has no sorting information");
+    table_chunk->set_individually_sorted_by(chunk->individually_sorted_by());
   }
 
   for (const auto chunk_id : _chunk_ids) {

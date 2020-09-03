@@ -14,6 +14,7 @@ namespace opossum {
 
 ClusteringPartitioner::ClusteringPartitioner(const std::shared_ptr<const AbstractOperator>& referencing_table_op, std::shared_ptr<Table> table, const std::shared_ptr<Chunk> chunk, const std::vector<ClusterKey>& cluster_keys, std::map<ClusterKey, std::pair<ChunkID, std::shared_ptr<Chunk>>>& clusters, std::map<ClusterKey, std::set<ChunkID>>& chunk_ids_per_cluster)
     : AbstractReadWriteOperator{OperatorType::ClusteringPartitioner, referencing_table_op}, _table{table}, _chunk{chunk}, _cluster_keys{cluster_keys}, _clusters{clusters}, _chunk_ids_per_cluster{chunk_ids_per_cluster}, _num_locks{0}, _transaction_id{0} {
+      Assert(!_chunk->is_mutable(), "ClusteringPartitioner expects immutable chunks");
       Assert(_chunk->size() == _cluster_keys.size(), "We need one cluster key for every row in the chunk.");
     }
 
@@ -61,7 +62,7 @@ std::shared_ptr<const Table> ClusteringPartitioner::_on_execute(std::shared_ptr<
 
 void ClusteringPartitioner::_start_new_chunk(ClusterKey cluster_key) {
   const auto append_lock = _table->acquire_append_mutex();
-  _table->append_mutable_chunk();        
+  _table->append_mutable_chunk(false);
   const auto& last_chunk = _table->last_chunk();
   Assert(last_chunk, "failed to get last chunk");
   const ChunkID appended_chunk_id {_table->chunk_count() - 1};

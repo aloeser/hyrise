@@ -67,6 +67,7 @@ ClusterBoundaries DisjointClustersAlgo::_get_boundaries(const std::shared_ptr<co
   bool cluster_full = false;
   size_t bin_id{0};
   for (; bin_id < histogram->bin_count(); bin_id++) {
+    bool is_last_bin = bin_id == histogram->bin_count() - 1;
     if (!lower_bound_set) {
       lower_bound = histogram->bin_minimum(bin_id);
       lower_bound_set = true;
@@ -81,11 +82,11 @@ ClusterBoundaries DisjointClustersAlgo::_get_boundaries(const std::shared_ptr<co
     if (rows_in_cluster + bin_size < ideal_rows_per_cluster) {
       // cluster has not yet reached its target size
       rows_in_cluster += bin_size;
-      upper_bound = histogram->bin_maximum(bin_id);
+      upper_bound = is_last_bin ? AllTypeVariant{} : histogram->bin_minimum(bin_id + 1);
     } else if (rows_in_cluster + bin_size - ideal_rows_per_cluster < ideal_rows_per_cluster - rows_in_cluster) {
       // cluster gets larger than the target size with this bin, but it is still closer to the target size than without the bin
       // no point in increasing rows_in_cluster, if the cluster is full it will be reset automatically
-      upper_bound = histogram->bin_maximum(bin_id);
+      upper_bound = is_last_bin ? AllTypeVariant{} : histogram->bin_minimum(bin_id + 1);
       cluster_full = true;
     } else {
       // cluster would get larger than intended - process the bin again in the next cluster
@@ -99,7 +100,6 @@ ClusterBoundaries DisjointClustersAlgo::_get_boundaries(const std::shared_ptr<co
       lower_bound_set = false;
       rows_in_cluster = 0;
       cluster_full = false;
-      bool is_last_bin = bin_id == histogram->bin_count() - 1;
       if (!is_last_bin) {
         boundaries.push_back(std::make_pair(AllTypeVariant{}, AllTypeVariant{}));
       }
@@ -123,16 +123,18 @@ size_t _get_cluster_index(const ClusterBoundaries& cluster_boundaries, const std
     const ColumnDataType& value = *optional_value;
     
     for (const std::pair<AllTypeVariant, AllTypeVariant>& boundary : cluster_boundaries) {
-      if (variant_is_null(boundary.first) || variant_is_null(boundary.second)) {
+      if (variant_is_null(boundary.first) && variant_is_null(boundary.second)) {
         // null values are handled above
         cluster_index++;
         continue;
       }
 
       const auto low = boost::get<ColumnDataType>(boundary.first);
-      const auto high = boost::get<ColumnDataType>(boundary.second);
-      if (low <= value && value <= high) {
-        break;                
+
+      if (low <= value) {
+        if (variant_is_null(boundary.second) || value < boost::get<ColumnDataType>(boundary.second)) {
+          break;
+        }
       }
       cluster_index++;
     }
@@ -347,6 +349,15 @@ void DisjointClustersAlgo::_perform_clustering() {
       }
     }
 
+    // finalize the new chunks
+    for (const auto& [cluster_key, chunk_ids] : chunk_ids_per_cluster) {
+      for (const auto chunk_id : chunk_ids) {
+        const auto& chunk = _table->get_chunk(chunk_id);
+        Assert(chunk, "chunk disappeared");
+        chunk->finalize();
+      }
+    }
+
     const auto partition_duration = per_step_timer.lap();
     std::cout << "-   Partitioning done (" << format_duration(partition_duration) << ")" << std::endl;
     _runtime_statistics[table_name]["steps"]["partition"] = partition_duration.count();
@@ -393,6 +404,13 @@ void DisjointClustersAlgo::_perform_clustering() {
         cluster_idx++;
       }
 
+      // finalize merge chunks
+      for (const auto chunk_id : chunk_ids_per_cluster[MERGE_CLUSTER]) {
+        const auto& chunk = _table->get_chunk(chunk_id);
+        Assert(chunk, "chunk disappeared");
+        chunk->finalize();
+      }
+
       const auto merge_duration = per_step_timer.lap();
       std::cout << "-   Merging small chunks done (" << format_duration(merge_duration) << ")" << std::endl;
       _runtime_statistics[table_name]["steps"]["merge"] = merge_duration.count();
@@ -400,10 +418,11 @@ void DisjointClustersAlgo::_perform_clustering() {
 
 
     // phase 2: sort within clusters
+    std::unordered_set<ChunkID> new_chunk_ids;
     std::cout << "-   Sorting clusters" << std::endl;
     for (const auto& [key, chunk_ids] : chunk_ids_per_cluster) {
       auto sort_transaction = Hyrise::get().transaction_manager.new_transaction_context(AutoCommit::No);
-      auto clustering_sorter = std::make_shared<ClusteringSorter>(nullptr, _table, chunk_ids, sort_column_id);
+      auto clustering_sorter = std::make_shared<ClusteringSorter>(nullptr, _table, chunk_ids, sort_column_id, new_chunk_ids);
       clustering_sorter->set_transaction_context(sort_transaction);
       clustering_sorter->execute();
 
@@ -420,7 +439,18 @@ void DisjointClustersAlgo::_perform_clustering() {
     _runtime_statistics[table_name]["steps"]["sort"] = sort_duration.count();
 
 
-    // phase 2.5: pretend mvcc plugin were active and remove invalidated chunks
+    // phase 2.5: encode chunks
+    std::cout << "-   Encoding clusters" << std::endl;
+    for (const auto chunk_id : new_chunk_ids) {
+      const auto &chunk = _table->get_chunk(chunk_id);
+      Assert(chunk, "chunk must not be deleted");
+      ChunkEncoder::encode_chunk(chunk, _table->column_data_types(), EncodingType::Dictionary);
+    }
+    const auto encode_duration = per_step_timer.lap();
+    std::cout << "Encoding clusters done (" << format_duration(encode_duration) << ")" << std::endl;
+    _runtime_statistics[table_name]["steps"]["encode"] = encode_duration.count();
+
+    // phase 3: pretend mvcc plugin were active and remove invalidated chunks
     std::cout << "-   Clean up" << std::endl;
     size_t num_invalid_chunks = 0;
     size_t num_removed_chunks = 0;

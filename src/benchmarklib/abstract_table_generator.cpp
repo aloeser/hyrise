@@ -240,4 +240,21 @@ AbstractTableGenerator::SortOrderByTable AbstractTableGenerator::_sort_order_by_
 void AbstractTableGenerator::_add_constraints(
     std::unordered_map<std::string, BenchmarkTableInfo>& table_info_by_name) const {}
 
+bool AbstractTableGenerator::_all_chunks_sorted_by(const std::shared_ptr<Table>& table,
+                                                   const SortColumnDefinition& sort_column) {
+  for (ChunkID chunk_id{0}; chunk_id < table->chunk_count(); ++chunk_id) {
+    const auto& sorted_columns = table->get_chunk(chunk_id)->individually_sorted_by();
+    if (sorted_columns.empty()) return false;
+    bool chunk_sorted = false;
+    for (const auto& sorted_column : sorted_columns) {
+      if (sorted_column.column == sort_column.column) {
+        Assert(sorted_column.sort_mode == sort_column.sort_mode, "Column is already sorted by another SortMode");
+        chunk_sorted = true;
+      }
+    }
+    if (!chunk_sorted) return false;
+  }
+  return true;
+}
+
 }  // namespace opossum
