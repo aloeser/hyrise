@@ -50,7 +50,7 @@ int main(int argc, const char* argv[]) {
   auto config = std::make_shared<BenchmarkConfig>(BenchmarkConfig::get_default_config());
   config->max_runs = 10;
   config->enable_visualization = false;
-  config->cache_binary_tables = true;
+  config->cache_binary_tables = false;
 
   constexpr auto USE_PREPARED_STATEMENTS = false;
   auto SCALE_FACTOR = 17.0f;  // later overwritten
