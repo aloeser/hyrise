@@ -47,19 +47,18 @@ ClusterBoundaries DisjointClustersAlgo::_get_boundaries(const std::shared_ptr<co
   Assert(num_clusters <= histogram->bin_count(), "more clusters (" + std::to_string(num_clusters) + ") than histogram bins (" + std::to_string(histogram->bin_count()) + ")");
 
   // TODO: is that a good estimation?
-  auto num_null_values = row_count - histogram->total_count();
+  auto num_null_values = row_count - static_cast<size_t>(histogram->total_count());
   ClusterBoundaries boundaries;
   if (nullable) {
     boundaries.push_back(std::make_pair(NULL_VALUE, NULL_VALUE));
   } else {
     // For SF 10, there seems to be a bug that causes histograms to contain more entries than the table has values
-    num_null_values = std::max(num_null_values, 0.0f);
+    num_null_values = std::max(num_null_values, size_t{0});
   }
   // add the first non-null cluster boundaries. The boundary values will be set later
   boundaries.push_back(std::make_pair(NULL_VALUE, NULL_VALUE));
 
-  // TODO: consider the number of null values?
-  const auto ideal_rows_per_cluster = std::max(size_t{1}, row_count / num_clusters);
+  const auto ideal_rows_per_cluster = std::max(size_t{1}, (row_count - num_null_values) / num_clusters);
   AllTypeVariant lower_bound;
   AllTypeVariant upper_bound;
   size_t rows_in_cluster = 0;
@@ -91,6 +90,7 @@ ClusterBoundaries DisjointClustersAlgo::_get_boundaries(const std::shared_ptr<co
     } else {
       // cluster would get larger than intended - process the bin again in the next cluster
       bin_id--;
+      is_last_bin = bin_id == histogram->bin_count() - 1;
       cluster_full = true;
     }
 
@@ -107,6 +107,13 @@ ClusterBoundaries DisjointClustersAlgo::_get_boundaries(const std::shared_ptr<co
   }
 
   Assert(bin_id == histogram->bin_count(), "histogram has " + std::to_string(histogram->bin_count()) + " bins, but processed only " + std::to_string(bin_id));
+
+
+  for (size_t boundary = 1; boundary < boundaries.size() - 1; boundary++) {
+    if (nullable and boundary == 1) continue;
+
+    Assert(boundaries[boundary].second == boundaries[boundary + 1].first, "Hole between boundary " + std::to_string(boundary) + " and " + std::to_string(boundary + 1));
+  }
 
   return boundaries;
 }
