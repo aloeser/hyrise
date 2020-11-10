@@ -15,6 +15,11 @@ set(
     benchmarklib/table_builder_test.cpp
     gtest_case_template.cpp
     gtest_main.cpp
+    # calibrationlib/calibration_table_generator_test.cpp
+    # calibrationlib/calibration_table_wrapper_test.cpp
+    # calibrationlib/calibration_lqp_generator_test.cpp
+    # calibrationlib/operator_feature_exporter_test.cpp
+    # calibrationlib/table_feature_exporter_test.cpp
     lib/all_parameter_variant_test.cpp
     lib/all_type_variant_test.cpp
     lib/cache/cache_test.cpp
@@ -272,7 +277,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # Configure hyriseTest
 add_executable(hyriseTest ${HYRISE_UNIT_TEST_SOURCES})
 add_dependencies(hyriseTest hyriseTestPlugin hyriseMvccDeletePlugin hyriseTestNonInstantiablePlugin)
-target_link_libraries(hyriseTest hyrise ${LIBRARIES})
+target_link_libraries(hyriseTest hyrise hyriseCalibrationLib ${LIBRARIES})
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 target_compile_options(hyriseTest PUBLIC -Xclang -fno-pch-timestamp)
