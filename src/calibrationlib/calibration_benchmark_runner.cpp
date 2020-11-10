@@ -62,7 +62,7 @@ void CalibrationBenchmarkRunner::run_benchmark(const BenchmarkType type, const f
     benchmark_runner->run();
   }
 
-  std::cout << std::endl << "- Exporting test data for " << magic_enum::enum_name(type) << std::endl;
+  std::cout << std::endl << "Exporting data for " << magic_enum::enum_name(type) << std::endl;
   feature_exporter->flush();
 
   const std::vector<std::string> table_names = Hyrise::get().storage_manager.table_names();

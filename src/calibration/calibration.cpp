@@ -14,8 +14,8 @@ int main() {
                                                       BenchmarkType::JCC_H, BenchmarkType::JOB};
   constexpr float SCALE_FACTOR = 1.0f;
   constexpr int NUMBER_BENCHMARK_EXECUTIONS = 1;
-  constexpr int NUMBER_BENCHMARK_ITEM_RUNS = 1;  //00;
-  constexpr int NUMBER_JOB_ITEM_RUNS = 1;        //2;
+  constexpr int NUMBER_BENCHMARK_ITEM_RUNS = 100;
+  constexpr int NUMBER_JOB_ITEM_RUNS = 2;
   constexpr bool SKEW_JCCH = false;
 
   // Execute calibration
@@ -23,7 +23,7 @@ int main() {
   auto start = std::chrono::system_clock::now();
   auto benchmark_runner = CalibrationBenchmarkRunner(DATA_PATH, SKEW_JCCH);
   for (const auto type : BENCHMARK_TYPES) {
-    std::cout << "- Run " << magic_enum::enum_name(type) << std::endl;
+    std::cout << "Run " << magic_enum::enum_name(type) << std::endl;
     const auto item_runs = type == BenchmarkType::JOB ? NUMBER_JOB_ITEM_RUNS : NUMBER_BENCHMARK_ITEM_RUNS;
     benchmark_runner.run_benchmark(type, SCALE_FACTOR, NUMBER_BENCHMARK_EXECUTIONS, item_runs);
   }
