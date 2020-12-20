@@ -74,6 +74,10 @@ namespace opossum {
 
 bool JoinNestedLoop::supports(const JoinConfiguration config) { return true; }
 
+bool JoinNestedLoop::satisfies_join_preference(const JoinType join_type) {
+  return join_type == JoinType::Auto || join_type == JoinType::NestedLoop;
+}
+
 JoinNestedLoop::JoinNestedLoop(const std::shared_ptr<const AbstractOperator>& left,
                                const std::shared_ptr<const AbstractOperator>& right, const JoinMode mode,
                                const OperatorJoinPredicate& primary_predicate,
@@ -317,7 +321,7 @@ void JoinNestedLoop::_join_two_untyped_segments(const AbstractSegment& abstract_
       constexpr auto NEITHER_IS_STRING_COLUMN = !LEFT_IS_STRING_COLUMN && !RIGHT_IS_STRING_COLUMN;
       constexpr auto BOTH_ARE_STRING_COLUMN = LEFT_IS_STRING_COLUMN && RIGHT_IS_STRING_COLUMN;
 
-      if constexpr (NEITHER_IS_STRING_COLUMN || BOTH_ARE_STRING_COLUMN) {  // NOLINT
+      if constexpr (NEITHER_IS_STRING_COLUMN || BOTH_ARE_STRING_COLUMN) {
         // Erase the `predicate_condition` into a std::function<>
         auto erased_comparator = std::function<bool(const LeftType&, const RightType&)>{};
         with_comparator(params.predicate_condition, [&](auto comparator) { erased_comparator = comparator; });

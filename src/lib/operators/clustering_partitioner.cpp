@@ -4,6 +4,7 @@
 #include <string>
 
 #include "concurrency/transaction_context.hpp"
+#include "hyrise.hpp"
 #include "operators/validate.hpp"
 #include "statistics/table_statistics.hpp"
 #include "storage/reference_segment.hpp"
@@ -11,12 +12,22 @@
 
 namespace opossum {
 
-
-ClusteringPartitioner::ClusteringPartitioner(const std::shared_ptr<const AbstractOperator>& referencing_table_op, std::shared_ptr<Table> table, const std::shared_ptr<Chunk> chunk, const std::vector<ClusterKey>& cluster_keys, std::map<ClusterKey, std::pair<ChunkID, std::shared_ptr<Chunk>>>& clusters, std::map<ClusterKey, std::set<ChunkID>>& chunk_ids_per_cluster)
-    : AbstractReadWriteOperator{OperatorType::ClusteringPartitioner, referencing_table_op}, _table{table}, _chunk{chunk}, _cluster_keys{cluster_keys}, _clusters{clusters}, _chunk_ids_per_cluster{chunk_ids_per_cluster}, _num_locks{0}, _transaction_id{0} {
-      Assert(!_chunk->is_mutable(), "ClusteringPartitioner expects immutable chunks");
-      Assert(_chunk->size() == _cluster_keys.size(), "We need one cluster key for every row in the chunk.");
-    }
+ClusteringPartitioner::ClusteringPartitioner(const std::shared_ptr<const AbstractOperator>& referencing_table_op,
+                                             std::shared_ptr<Table> table, const std::shared_ptr<Chunk> chunk,
+                                             const std::vector<ClusterKey>& cluster_keys,
+                                             std::map<ClusterKey, std::pair<ChunkID, std::shared_ptr<Chunk>>>& clusters,
+                                             std::map<ClusterKey, std::set<ChunkID>>& chunk_ids_per_cluster)
+    : AbstractReadWriteOperator{OperatorType::ClusteringPartitioner, referencing_table_op},
+      _table{table},
+      _chunk{chunk},
+      _cluster_keys{cluster_keys},
+      _clusters{clusters},
+      _chunk_ids_per_cluster{chunk_ids_per_cluster},
+      _num_locks{0},
+      _transaction_id{0} {
+  Assert(!_chunk->is_mutable(), "ClusteringPartitioner expects immutable chunks");
+  Assert(_chunk->size() == _cluster_keys.size(), "We need one cluster key for every row in the chunk.");
+}
 
 const std::string& ClusteringPartitioner::name() const {
   static const auto name = std::string{"ClusteringPartitioner"};
@@ -50,6 +61,7 @@ std::shared_ptr<const Table> ClusteringPartitioner::_on_execute(std::shared_ptr<
     const auto expected = 0u;
     auto success = mvcc_data->compare_exchange_tid(offset, expected, _transaction_id);
     if (!success) {
+      std::cout << "Could not lock a row that was not yet invalidated" << std::endl;
       _mark_as_failed();
       return nullptr;
     } else {
@@ -65,20 +77,29 @@ void ClusteringPartitioner::_start_new_chunk(ClusterKey cluster_key) {
   _table->append_mutable_chunk(false);
   const auto& last_chunk = _table->last_chunk();
   Assert(last_chunk, "failed to get last chunk");
-  const ChunkID appended_chunk_id {_table->chunk_count() - 1};
+  const ChunkID appended_chunk_id{_table->chunk_count() - 1};
+  if (_clusters.find(cluster_key) != _clusters.cend()) {
+    // This cluster had a chunk before. Mark it for encoding
+    Hyrise::get().chunks_to_encode_mutex->lock();
+    Hyrise::get().chunks_to_encode.insert(_clusters[cluster_key].first);
+    Hyrise::get().chunks_to_encode_mutex->unlock();
+  }
   _clusters[cluster_key] = std::make_pair(appended_chunk_id, last_chunk);
 
   if (_chunk_ids_per_cluster.find(cluster_key) == _chunk_ids_per_cluster.end()) {
     _chunk_ids_per_cluster[cluster_key] = {};
   }
   _chunk_ids_per_cluster[cluster_key].insert(appended_chunk_id);
+  Hyrise::get().active_chunks_mutex->lock();
+  Hyrise::get().active_chunks.insert(appended_chunk_id);
+  Hyrise::get().active_chunks_mutex->unlock();
 }
 
 void ClusteringPartitioner::_on_commit_records(const CommitID commit_id) {
   // all locks have been acquired by now, so just write the results
   const auto mvcc_data = _chunk->mvcc_data();
 
-/*
+  /*
   for (ChunkOffset chunk_offset{0}; chunk_offset < _cluster_keys.size(); chunk_offset++) {
     if (mvcc_data->get_end_cid(chunk_offset) != MvccData::MAX_COMMIT_ID) {
       // Row is already marked as deleted. Do not cluster it.
@@ -143,7 +164,8 @@ void ClusteringPartitioner::_on_commit_records(const CommitID commit_id) {
       insertion_values.push_back((*segment)[chunk_offset]);
     }
 
-    if (_clusters.find(cluster_key) == _clusters.end() || _clusters[cluster_key].second->size() == _table->target_chunk_size()) {
+    if (_clusters.find(cluster_key) == _clusters.end() ||
+        _clusters[cluster_key].second->size() == _table->target_chunk_size()) {
       _start_new_chunk(cluster_key);
     }
 
@@ -157,11 +179,11 @@ void ClusteringPartitioner::_on_commit_records(const CommitID commit_id) {
     cluster_chunk->append(insertion_values);
   }
 
-  Assert(_chunk->invalid_row_count() == _chunk->size(), "only " + std::to_string(_chunk->invalid_row_count()) + " of " + std::to_string(_chunk->size()) + " marked invalid");
+  Assert(_chunk->invalid_row_count() == _chunk->size(), "only " + std::to_string(_chunk->invalid_row_count()) + " of " +
+                                                            std::to_string(_chunk->size()) + " marked invalid");
   _chunk->set_cleanup_commit_id(commit_id);
   // _unlock_chunk(_chunk);
 }
-
 
 // TODO do we need locks on the cluster-chunks that are added by this operator?
 

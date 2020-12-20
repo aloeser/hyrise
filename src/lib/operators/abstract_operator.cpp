@@ -9,7 +9,9 @@
 #include "concurrency/transaction_context.hpp"
 #include "logical_query_plan/abstract_non_query_node.hpp"
 #include "logical_query_plan/dummy_table_node.hpp"
+#include "resolve_type.hpp"
 #include "storage/table.hpp"
+#include "storage/value_segment.hpp"
 #include "utils/assert.hpp"
 #include "utils/format_bytes.hpp"
 #include "utils/format_duration.hpp"
@@ -59,6 +61,12 @@ void AbstractOperator::execute() {
     performance_data->has_output = true;
     performance_data->output_row_count = _output->row_count();
     performance_data->output_chunk_count = _output->chunk_count();
+    performance_data->output_column_count = _output->column_count();
+    for (auto chunk_id = ChunkID{0}; chunk_id < _output->chunk_count(); ++chunk_id) {
+      const auto& chunk = _output->get_chunk(chunk_id);
+      if (!chunk) continue;
+      performance_data->chunks_sorted_by.push_back(chunk->individually_sorted_by());
+    }
   }
   performance_data->walltime = performance_timer.lap();
   performance_data->executed = true;
@@ -67,8 +75,8 @@ void AbstractOperator::execute() {
                 _output ? _output->row_count() : 0, _output ? _output->chunk_count() : 0,
                 reinterpret_cast<uintptr_t>(this));
 
-  // Verify that LQP (if set) and PQP match.
   if constexpr (HYRISE_DEBUG) {
+    // Verify that LQP (if set) and PQP match.
     if (lqp_node) {
       const auto& lqp_expressions = lqp_node->output_expressions();
       if (!_output) {
@@ -93,6 +101,25 @@ void AbstractOperator::execute() {
             Assert(pqp_type == lqp_type,
                    std::string{"Mismatching column type in "} + name() + " for PQP column '" + pqp_name + "'");
           }
+        }
+      }
+    }
+
+    // Verify that nullability of columns and segments match for ValueSegments
+    // Only ValueSegments have an individual is_nullable attribute
+    if (_output && _output->type() == TableType::Data) {
+      for (auto chunk_id = ChunkID{0}; chunk_id < _output->chunk_count(); ++chunk_id) {
+        for (auto column_id = ColumnID{0}; column_id < _output->column_count(); ++column_id) {
+          const auto& abstract_segment = _output->get_chunk(chunk_id)->get_segment(column_id);
+          resolve_data_and_segment_type(*abstract_segment, [&](const auto data_type_t, const auto& segment) {
+            using ColumnDataType = typename decltype(data_type_t)::type;
+            using SegmentType = std::decay_t<decltype(segment)>;
+            if constexpr (std::is_same_v<SegmentType, ValueSegment<ColumnDataType>>) {
+              // If segment is nullable, the column must be nullable as well
+              Assert(!segment.is_nullable() || _output->column_is_nullable(column_id),
+                     std::string{"Nullable segment found in non-nullable column "} + _output->column_name(column_id));
+            }
+          });
         }
       }
     }

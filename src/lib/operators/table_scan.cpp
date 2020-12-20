@@ -170,7 +170,7 @@ std::shared_ptr<const Table> TableScan::_on_execute() {
       } else {
         matches_out->guarantee_single_chunk();
 
-        // If the entire chunk is matched, create a EntireChunkPosList instead
+        // If the entire chunk is matched, create an EntireChunkPosList instead
         const auto output_pos_list = matches_out->size() == chunk_in->size()
                                          ? static_cast<std::shared_ptr<AbstractPosList>>(
                                                std::make_shared<EntireChunkPosList>(chunk_id, chunk_in->size()))
@@ -192,14 +192,14 @@ std::shared_ptr<const Table> TableScan::_on_execute() {
     });
 
     jobs.push_back(job_task);
-    job_task->schedule();
   }
 
-  Hyrise::get().scheduler()->wait_for_tasks(jobs);
+  Hyrise::get().scheduler()->schedule_and_wait_for_tasks(jobs);
 
-  auto& scan_performance_data = static_cast<PerformanceData&>(*performance_data);
-  scan_performance_data.chunk_scans_skipped = _impl->chunk_scans_skipped;
-  scan_performance_data.chunk_scans_sorted = _impl->chunk_scans_sorted;
+  auto& scan_performance_data = dynamic_cast<PerformanceData&>(*performance_data);
+  scan_performance_data.num_chunks_with_early_out = _impl->num_chunks_with_early_out.load();
+  scan_performance_data.num_chunks_with_all_rows_matching = _impl->num_chunks_with_all_rows_matching.load();
+  scan_performance_data.num_chunks_with_binary_search = _impl->num_chunks_with_binary_search.load();
 
   return std::make_shared<Table>(in_table->column_definitions(), TableType::References, std::move(output_chunks));
 }

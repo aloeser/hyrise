@@ -44,6 +44,13 @@ struct ColumnDataDistribution {
     return c;
   }
 
+  bool operator==(ColumnDataDistribution& rhs) const {
+    return std::tie(distribution_type, num_different_values, pareto_scale, skew_location, skew_scale, skew_shape,
+                    min_value, max_value) == std::tie(rhs.distribution_type, rhs.num_different_values, rhs.pareto_scale,
+                                                      rhs.skew_location, rhs.skew_scale, rhs.skew_shape, rhs.min_value,
+                                                      rhs.max_value);
+  }
+
   DataDistributionType distribution_type = DataDistributionType::Uniform;
 
   int num_different_values = 1'000;
@@ -81,7 +88,7 @@ class SyntheticTableGenerator {
   // Simple table generation, mainly for simple tests
   std::shared_ptr<Table> generate_table(const size_t num_columns, const size_t num_rows,
                                         const ChunkOffset chunk_size = Chunk::DEFAULT_SIZE,
-                                        const SegmentEncodingSpec segment_encoding_spec = {
+                                        const SegmentEncodingSpec segment_encoding_spec = SegmentEncodingSpec{
                                             EncodingType::Unencoded}) const;
 
   static std::shared_ptr<Table> generate_table(const std::vector<ColumnSpecification>& column_specifications,

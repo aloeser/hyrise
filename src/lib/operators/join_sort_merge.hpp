@@ -25,6 +25,7 @@ namespace opossum {
 class JoinSortMerge : public AbstractJoinOperator {
  public:
   static bool supports(const JoinConfiguration config);
+  static bool satisfies_join_preference(const JoinType join_type);
 
   JoinSortMerge(const std::shared_ptr<const AbstractOperator>& left,
                 const std::shared_ptr<const AbstractOperator>& right, const JoinMode mode,
@@ -46,7 +47,7 @@ class JoinSortMerge : public AbstractJoinOperator {
   template <typename T>
   friend class JoinSortMergeImpl;
 
-  std::unique_ptr<AbstractJoinOperatorImpl> _impl;
+  std::unique_ptr<AbstractReadOnlyOperatorImpl> _impl;
 };
 
 }  // namespace opossum

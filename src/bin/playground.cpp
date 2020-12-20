@@ -29,13 +29,13 @@ int main(int argc, const char* argv[]) {
     exit(17);
   } else if (strncmp(env_var, "foobar", 6ul)) {
 
-  	/**
-  	 *
-  	 * 		WE ARE DONE HERE.
-  	 		Just some code copied to ensure that benchmarklib does include all necessary code. Other solutions include some unnice CMakeList modifications ...
-  	 *
-  	 */
-  	exit(0);
+    /**
+     *
+     *    WE ARE DONE HERE.
+        Just some code copied to ensure that benchmarklib does include all necessary code. Other solutions include some unnice CMakeList modifications ...
+     *
+     */
+    exit(0);
   }
 
   auto BENCHMARK = std::string(env_var);
@@ -85,7 +85,7 @@ int main(int argc, const char* argv[]) {
     const std::string query_path = "hyrise/resources/benchmark/tpcds/tpcds-result-reproduction/query_qualification";
 
     auto query_generator = std::make_unique<FileBasedBenchmarkItemRunner>(config, query_path, std::unordered_set<std::string>{});
-    auto table_generator = std::make_unique<TpcdsTableGenerator>(SCALE_FACTOR, config);
+    auto table_generator = std::make_unique<TPCDSTableGenerator>(SCALE_FACTOR, config);
     auto benchmark_runner = std::make_shared<BenchmarkRunner>(*config, std::move(query_generator), std::move(table_generator),
                                                               opossum::BenchmarkRunner::create_context(*config));
     Hyrise::get().benchmark_runner = benchmark_runner;

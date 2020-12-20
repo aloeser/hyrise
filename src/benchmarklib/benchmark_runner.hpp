@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 #include "cxxopts.hpp"
 
+#include "../calibrationlib/operator_feature_exporter.hpp"
 #include "abstract_benchmark_item_runner.hpp"
 #include "abstract_table_generator.hpp"
 #include "benchmark_item_result.hpp"
@@ -40,7 +41,8 @@ class BenchmarkRunner : public Noncopyable {
   static constexpr auto SYSTEM_UTILIZATION_TRACKING_INTERVAL = std::chrono::milliseconds{1000};
 
   BenchmarkRunner(const BenchmarkConfig& config, std::unique_ptr<AbstractBenchmarkItemRunner> benchmark_item_runner,
-                  std::unique_ptr<AbstractTableGenerator> table_generator, const nlohmann::json& context);
+                  std::unique_ptr<AbstractTableGenerator> table_generator, const nlohmann::json& context,
+                  std::shared_ptr<OperatorFeatureExporter> operator_exporter = nullptr);
 
   void run();
 
@@ -70,8 +72,16 @@ class BenchmarkRunner : public Noncopyable {
   // Create a report in roughly the same format as google benchmarks do when run with --benchmark_format=json
   void _create_report(std::ostream& stream) const;
 
+  void _export_pqps() const;
+
   // Converts the result of a SQL query into a JSON object
-  static nlohmann::json _sql_to_json(const std::string& sql);  
+  static nlohmann::json _sql_to_json(const std::string& sql);
+
+  // Writes the current meta_segments table into the benchmark_segments_log tables. The `moment` parameter can be used
+  // to identify a certain point in the benchmark, e.g., when an item is finished in the ordered mode.
+  void _snapshot_segment_access_counters(const std::string& moment = "");
+
+  //const BenchmarkConfig _config;
 
   std::unique_ptr<AbstractBenchmarkItemRunner> _benchmark_item_runner;
   std::unique_ptr<AbstractTableGenerator> _table_generator;
@@ -82,6 +92,8 @@ class BenchmarkRunner : public Noncopyable {
   std::vector<BenchmarkItemResult> _results;
 
   nlohmann::json _context;
+
+  std::shared_ptr<OperatorFeatureExporter> _operator_exporter;
 
   std::optional<PerformanceWarningDisabler> _performance_warning_disabler;
 
@@ -97,6 +109,8 @@ class BenchmarkRunner : public Noncopyable {
   std::atomic_uint _total_finished_runs{0};
 
   BenchmarkState _state{Duration{0}};
+
+  int _snapshot_id{0};
 };
 
 }  // namespace opossum

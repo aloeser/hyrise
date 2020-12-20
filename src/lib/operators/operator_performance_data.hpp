@@ -20,7 +20,7 @@ struct AbstractOperatorPerformanceData : public Noncopyable {
 
   virtual void output_to_stream(std::ostream& stream, DescriptionMode description_mode) const = 0;
 
-  enum class NoStages { };
+  enum class NoStages {};
 
   bool executed{false};
   std::chrono::nanoseconds walltime{0};
@@ -30,6 +30,8 @@ struct AbstractOperatorPerformanceData : public Noncopyable {
   bool has_output{false};
   uint64_t output_row_count{0};
   uint64_t output_chunk_count{0};
+  uint32_t output_column_count{0};
+  std::vector<std::vector<SortColumnDefinition>> chunks_sorted_by{};
 };
 
 /**
@@ -42,7 +44,7 @@ struct AbstractOperatorPerformanceData : public Noncopyable {
  */
 template <typename Steps>
 struct OperatorPerformanceData : public AbstractOperatorPerformanceData {
-  void output_to_stream(std::ostream& stream, DescriptionMode description_mode) const {
+  void output_to_stream(std::ostream& stream, DescriptionMode description_mode) const override {
     if (!executed) {
       stream << "Not executed.";
       return;
@@ -59,6 +61,16 @@ struct OperatorPerformanceData : public AbstractOperatorPerformanceData {
 
     if constexpr (std::is_same_v<Steps, NoSteps>) {
       return;
+    }
+
+    // Check that the cumulative step runtimes are not larger than the operator's runtime.
+    if constexpr (HYRISE_DEBUG) {
+      auto cumulative_step_runtime = size_t{0};
+      for (auto step_index = size_t{0}; step_index < magic_enum::enum_count<Steps>(); ++step_index) {
+        cumulative_step_runtime += step_runtimes[step_index].count();
+      }
+      Assert(static_cast<size_t>(walltime.count()) >= cumulative_step_runtime,
+             "Cumulative step runtimes larger than operator runtime.");
     }
 
     static_assert(magic_enum::enum_count<Steps>() <= sizeof(step_runtimes), "Too many steps.");

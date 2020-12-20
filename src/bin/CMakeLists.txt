@@ -25,6 +25,7 @@ target_link_libraries(
     hyrise
     hyriseBenchmarkLib
     nlohmann_json::nlohmann_json
+    robin_map
 )
 
 # Configure client

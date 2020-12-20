@@ -53,7 +53,7 @@ if (NOT "${HYRISE_RELAXED_BUILD}")
     # -Wno-deprecated-dynamic-exception-spec is needed for jemalloc, at least for the older version that we are using
 
     if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-        add_compile_options(-Weverything -Wshadow-all -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-documentation -Wno-padded -Wno-global-constructors -Wno-sign-conversion -Wno-exit-time-destructors -Wno-switch-enum -Wno-weak-vtables -Wno-double-promotion -Wno-covered-switch-default -Wno-unused-macros -Wno-newline-eof -Wno-missing-variable-declarations -Wno-weak-template-vtables -Wno-missing-prototypes -Wno-float-equal -Wno-return-std-move-in-c++11 -Wno-unreachable-code-break -Wno-undefined-func-template -Wno-unknown-warning-option -Wno-pass-failed -Wno-ctad-maybe-unsupported -Wno-header-hygiene -Wno-poison-system-directories)
+        add_compile_options(-Weverything -Wshadow-all -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-documentation -Wno-padded -Wno-global-constructors -Wno-sign-conversion -Wno-exit-time-destructors -Wno-switch-enum -Wno-weak-vtables -Wno-double-promotion -Wno-covered-switch-default -Wno-unused-macros -Wno-newline-eof -Wno-missing-variable-declarations -Wno-weak-template-vtables -Wno-missing-prototypes -Wno-float-equal -Wno-return-std-move-in-c++11 -Wno-unreachable-code-break -Wno-undefined-func-template -Wno-unknown-warning-option -Wno-pass-failed -Wno-ctad-maybe-unsupported -Wno-header-hygiene -Wno-poison-system-directories -Wno-zero-as-null-pointer-constant)
     endif()
 
 else()
@@ -68,6 +68,7 @@ include_directories(
     ${PROJECT_SOURCE_DIR}/third_party/magic_enum/include
 
     ${PROJECT_SOURCE_DIR}/src/benchmarklib/
+    ${PROJECT_SOURCE_DIR}/src/calibrationlib/
     ${PROJECT_SOURCE_DIR}/src/lib/
     ${PROJECT_SOURCE_DIR}/src/plugin/
 
@@ -79,7 +80,7 @@ include_directories(
     SYSTEM
     ${TBB_INCLUDE_DIR}
     ${PROJECT_SOURCE_DIR}/third_party/benchmark/include
-    ${PROJECT_SOURCE_DIR}/third_party/cpp-btree
+    ${PROJECT_SOURCE_DIR}/third_party/cpp-btree/include/btree
     ${PROJECT_SOURCE_DIR}/third_party/cxxopts/include
     ${PROJECT_SOURCE_DIR}/third_party/flat_hash_map
     ${PROJECT_SOURCE_DIR}/third_party/json
@@ -95,6 +96,8 @@ if (ENABLE_CLANG_TIDY)
 endif()
 
 add_subdirectory(benchmarklib)
+add_subdirectory(calibrationlib)
+add_subdirectory(calibration)
 add_subdirectory(bin)
 add_subdirectory(lib)
 add_subdirectory(plugins)
