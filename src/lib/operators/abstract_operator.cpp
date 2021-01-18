@@ -21,6 +21,8 @@
 
 namespace opossum {
 
+static uint64_t operator_id{0};
+
 AbstractOperator::AbstractOperator(const OperatorType type, const std::shared_ptr<const AbstractOperator>& left,
                                    const std::shared_ptr<const AbstractOperator>& right,
                                    std::unique_ptr<AbstractOperatorPerformanceData> init_performance_data)
@@ -70,6 +72,7 @@ void AbstractOperator::execute() {
   }
   performance_data->walltime = performance_timer.lap();
   performance_data->executed = true;
+  performance_data->operator_id = operator_id++;
 
   DTRACE_PROBE5(HYRISE, OPERATOR_EXECUTED, name().c_str(), performance_data->walltime.count(),
                 _output ? _output->row_count() : 0, _output ? _output->chunk_count() : 0,

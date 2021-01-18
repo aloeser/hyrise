@@ -32,6 +32,7 @@ struct AbstractOperatorPerformanceData : public Noncopyable {
   uint64_t output_chunk_count{0};
   uint32_t output_column_count{0};
   std::vector<std::vector<SortColumnDefinition>> chunks_sorted_by{};
+  uint64_t operator_id{std::numeric_limits<uint64_t>::max()};
 };
 
 /**
