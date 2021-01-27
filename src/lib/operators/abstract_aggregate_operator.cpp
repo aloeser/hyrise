@@ -49,6 +49,7 @@ std::string AbstractAggregateOperator::description(DescriptionMode description_m
     if (expression_idx + 1 < _aggregates.size()) desc << ", ";
   }
 
+  /*
   if (description_mode == DescriptionMode::SingleLine) {
     desc << " ";
   } else {
@@ -56,7 +57,7 @@ std::string AbstractAggregateOperator::description(DescriptionMode description_m
   }
 
   desc << *performance_data;
-
+  */
   return desc.str();
 }
 
