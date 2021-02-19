@@ -9,6 +9,7 @@
 #include "operators/abstract_operator.hpp"
 #include "operators/get_table.hpp"
 #include "operators/index_scan.hpp"
+#include "operators/join_hash.hpp"
 #include "operators/table_scan.hpp"
 #include "statistics/cardinality_estimator.hpp"
 #include "storage/table.hpp"
@@ -50,18 +51,18 @@ class OperatorFeatureExporter {
 
   void export_to_csv(const std::shared_ptr<const AbstractOperator> op);
   void export_to_csv(const std::shared_ptr<const AbstractOperator> op, const std::string& query);
-
   void flush();
 
  protected:
+  bool _has_column(const std::shared_ptr<const AbstractOperator>& op, const std::string& column_name) const;
+  bool _data_arrives_ordered(const std::shared_ptr<const AbstractOperator>& op, const std::string& table_name,
+                             const std::string& column_name) const;
   void _export_to_csv(const std::shared_ptr<const AbstractOperator>& op);
   void _export_operator(const std::shared_ptr<const AbstractOperator>& op);
-  void _export_general_operator(const std::shared_ptr<const AbstractOperator>& op);
   void _export_aggregate(const std::shared_ptr<const AbstractAggregateOperator>& op);
   void _export_join(const std::shared_ptr<const AbstractJoinOperator>& op);
-  void _export_get_table(const std::shared_ptr<const GetTable>& op);
+  size_t _get_pruned_chunk_count(std::shared_ptr<const AbstractOperator> op, const std::string& table_name);
   void _export_table_scan(const std::shared_ptr<const TableScan>& op);
-  void _export_index_scan(const std::shared_ptr<const IndexScan>& op);
 
   void _export_join_stages(const std::shared_ptr<const AbstractJoinOperator>& op);
 
@@ -78,7 +79,7 @@ class OperatorFeatureExporter {
   const pmr_string _check_column_sorted(const std::unique_ptr<AbstractOperatorPerformanceData>& performance_data,
                                         const ColumnID column_id) const;
 
-  const std::shared_ptr<Table> _general_output_table =
+  const std::shared_ptr<Table> _aggregate_output_table =
       std::make_shared<Table>(TableColumnDefinitions{{"OPERATOR_NAME", DataType::String, false},
                                                      {"INPUT_ROWS", DataType::Long, false},
                                                      {"INPUT_COLUMNS", DataType::Int, false},
@@ -88,15 +89,15 @@ class OperatorFeatureExporter {
                                                      {"ESTIMATED_CARDINALITY", DataType::Float, false},
                                                      {"RUNTIME_NS", DataType::Long, false},
                                                      {"COLUMN_TYPE", DataType::String, false},
-                                                     {"TABLE_NAME", DataType::String, false},
-                                                     {"COLUMN_NAME", DataType::String, false},
                                                      {"OPERATOR_IMPLEMENTATION", DataType::String, true},
-                                                     {"INPUT_COLUMN_SORTED", DataType::String, true},
+                                                     {"INPUT_COLUMN_SORTED", DataType::Int, true},
                                                      {"QUERY_HASH", DataType::String, true},
                                                      {"INPUT_CHUNKS", DataType::Long, false},
-                                                     {"PREDICATE", DataType::String, true}},
+                                                     {"GROUP_COLUMNS", DataType::Int, false},
+                                                     {"AGGREGATE_COLUMNS", DataType::Int, false},
+                                                     {"GROUP_COLUMN_NAMES", DataType::String, false}},
                               TableType::Data);
-  
+
   const std::shared_ptr<Table> _scan_output_table =
       std::make_shared<Table>(TableColumnDefinitions{{"OPERATOR_NAME", DataType::String, false},
                                                      {"INPUT_ROWS", DataType::Long, false},
@@ -114,11 +115,11 @@ class OperatorFeatureExporter {
                                                      {"QUERY_HASH", DataType::String, true},
                                                      {"INPUT_CHUNKS", DataType::Long, false},
                                                      {"PREDICATE", DataType::String, true},
-                                                     {"SCANS_SKIPPED", DataType::Long, false},
-                                                     {"SCANS_SORTED", DataType::Long, false}
-
-                                                   }, TableType::Data);
-
+                                                     {"SHORTCUT_NONE_MATCH", DataType::Long, false},
+                                                     {"SHORTCUT_ALL_MATCH", DataType::Long, false},
+                                                     {"SCANS_SORTED", DataType::Long, false},
+                                                     {"SEGMENTS_SCANNED", DataType::Long, false}},
+                              TableType::Data);
 
   const std::shared_ptr<Table> _join_output_table =
       std::make_shared<Table>(TableColumnDefinitions{{"JOIN_ID", DataType::Int, false},
@@ -147,7 +148,11 @@ class OperatorFeatureExporter {
                                                      {"RIGHT_INPUT_COLUMN_SORTED", DataType::String, true},
                                                      {"QUERY_HASH", DataType::String, true},
                                                      {"LEFT_INPUT_CHUNKS", DataType::Long, false},
-                                                     {"RIGHT_INPUT_CHUNKS", DataType::Long, false}},
+                                                     {"RIGHT_INPUT_CHUNKS", DataType::Long, false},
+                                                     {"LEFT_TABLE_PRUNED_CHUNKS", DataType::Long, false},
+                                                     {"RIGHT_TABLE_PRUNED_CHUNKS", DataType::Long, false},
+                                                     {"LEFT_TABLE_ROW_COUNT", DataType::Long, false},
+                                                     {"RIGHT_TABLE_ROW_COUNT", DataType::Long, false}},
                               TableType::Data);
   const std::shared_ptr<Table> _join_stages_table =
       std::make_shared<Table>(TableColumnDefinitions{{"JOIN_ID", DataType::Int, false},
@@ -160,7 +165,7 @@ class OperatorFeatureExporter {
       TableType::Data);
 
   const std::string _path_to_dir;
-  const std::string _output_path;
+  const std::string _aggegate_output_path;
   const std::string _scan_output_path;
   const std::string _join_output_path;
   const std::string _join_stages_output_path;

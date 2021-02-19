@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import numpy as np
 from collections import Counter
@@ -28,6 +29,9 @@ class PQPInputParser(object):
     self.joins = self.joins.dropna()
     self.process_joins()
 
+    self.aggregates = pd.read_csv(f"{self.statistics_path}/aggregates.csv", sep='|')
+    self.process_aggregates()
+
   """Returns a mapping from query (hash) to execution count"""
   def get_query_frequencies(self):    
     return dict(zip(self.plan_cache.QUERY_HASH, self.plan_cache.EXECUTION_COUNT))
@@ -46,6 +50,16 @@ class PQPInputParser(object):
     tables_and_columns = globally_sorted_columns.groupby('TABLE_NAME')
     globally_sorted_columns = {table: list(column_df.COLUMN_NAME) for table, column_df in tables_and_columns }
     
+    # Ugly hack to ensure the correct columns are set as sorted for TPC-H
+    if "region" in globally_sorted_columns:
+      globally_sorted_columns["region"] = ["r_regionkey"]
+    if "nation" in globally_sorted_columns:
+      globally_sorted_columns["nation"] = ["n_nationkey"]
+    if "supplier" in globally_sorted_columns:
+      globally_sorted_columns["supplier"] = ["s_suppkey"]
+    if "customer" in globally_sorted_columns:
+      globally_sorted_columns["customer"] = ["c_custkey"]
+
     return globally_sorted_columns
 
 
@@ -131,6 +145,16 @@ class PQPInputParser(object):
     # TODO: valid atm, but feels a bit hacky to assume not benefitting from sorted segments -> not benefitting from pruning
     scans['useful_for_pruning'] = scans.apply(lambda row: not row['part_of_or_chain'] and row['benefits_from_sorting'] , axis=1)
 
+    # Add/rename fields to match the cost model schema
+    scans['OPERATOR_IMPLEMENTATION'] = scans.apply(lambda x: x['DESCRIPTION'].split("Impl: ")[1].split()[0], axis=1)
+    scans.rename(inplace=True, columns={
+        'selectivity': 'SELECTIVITY_LEFT',
+        'INPUT_ROW_COUNT': 'INPUT_ROWS',
+        'OUTPUT_ROW_COUNT': 'OUTPUT_ROWS',
+        'PREDICATE_CONDITION': 'PREDICATE',
+        'INPUT_CHUNK_COUNT': 'INPUT_CHUNKS',
+    })
+
     self.table_scans = scans.copy()
 
 
@@ -167,17 +191,48 @@ class PQPInputParser(object):
     joins['BUILD_COLUMN'] = joins.apply(lambda x: x[x['BUILD_SIDE'] + "_COLUMN_NAME"] if not x['BUILD_SIDE'] == "NULL" else "NULL", axis=1)
     joins['BUILD_TABLE_ROW_COUNT'] = joins.apply(lambda x: x[x['BUILD_SIDE'] + "_TABLE_ROW_COUNT"] if not x['BUILD_SIDE'] == "NULL" else "NULL", axis=1)
     validate_joins(joins)
-                                                                                           
-    tmp = joins['BUILD_SORTED'].copy()
-    joins['BUILD_SORTED'] = joins['PROBE_SORTED'].copy()
-    joins['PROBE_SORTED'] = tmp
-    
+
+    joins['OPERATOR_IMPLEMENTATION'] = joins.apply(lambda x: x['DESCRIPTION'].split()[0], axis=1)
+    joins['BUILD_COLUMN_TYPE'] = joins.apply(lambda x: x[x['BUILD_SIDE'] + "_COLUMN_TYPE"], axis=1)
+    joins['BUILD_INPUT_CHUNKS'] = joins.apply(lambda x: x[x['BUILD_SIDE'] + "_TABLE_CHUNK_COUNT"], axis=1)
+    joins['PROBE_COLUMN_TYPE'] = joins.apply(lambda x: x[x['PROBE_SIDE'] + "_COLUMN_TYPE"], axis=1)
+    joins['PROBE_INPUT_CHUNKS'] = joins.apply(lambda x: x[x['PROBE_SIDE'] + "_TABLE_CHUNK_COUNT"], axis=1)
+
     self.joins = joins.copy()
 
-  """Extract interesting table names. Currently fixed to columns which are scanned or used in joins"""
+  def get_aggregates(self):
+    return self.aggregates
+
+  def process_aggregates(self):
+    # the same aggregate is contained multiple times - once for each grouping column, and once for each aggregate column
+    unique_aggregates = self.aggregates.groupby(['QUERY_HASH', 'OPERATOR_HASH'])
+    all_unique_aggregates = []
+    for (query_hash, operator_hash), df in unique_aggregates:
+      aggregate = []
+      for column in df.columns:
+        #min_value = df[column].min()
+        #max_value = df[column].max()
+        #assert  (min_value == max_value), f"min value is {min_value}, max value is {max_value}"
+        aggregate.append(",".join(map(str, df[column].unique())))
+      all_unique_aggregates.append(aggregate)
+
+    self.aggregates = pd.DataFrame(all_unique_aggregates, columns=self.aggregates.columns)
+    self.aggregates['OPERATOR_IMPLEMENTATION'] = self.aggregates['DESCRIPTION'].apply(lambda x: x.split(" ")[0])
+    self.aggregates.rename(inplace=True, columns={
+        'INPUT_ROW_COUNT': 'INPUT_ROWS',
+        'OUTPUT_ROW_COUNT': 'OUTPUT_ROWS',
+        'INPUT_CHUNK_COUNT': 'INPUT_CHUNKS',
+        'GROUP_BY_COLUMN_COUNT': 'GROUP_COLUMNS',
+        'AGGREGATE_COLUMN_COUNT': 'AGGREGATE_COLUMNS'
+      })
+    self.aggregates['RUNTIME_NS'] = self.aggregates['RUNTIME_NS'].astype(np.int64)
+    self.aggregates['AGGREGATE_COLUMNS'] = self.aggregates['AGGREGATE_COLUMNS'].astype(np.int64)
+    self.aggregates['GROUP_COLUMNS'] = self.aggregates['GROUP_COLUMNS'].astype(np.int64)
+
+  """Extract interesting table names. Currently fixed to columns which are used in scans or joins"""
   def get_table_names(self):
     scan_tables = set(self.table_scans['TABLE_NAME'].unique())
     left_join_tables = set(self.joins['LEFT_TABLE_NAME'].unique())
-    right_join_tables = set(self.joins['RIGHT_TABLE_NAME'].unique())    
+    right_join_tables = set(self.joins['RIGHT_TABLE_NAME'].unique())
 
     return scan_tables.union(left_join_tables.union(right_join_tables))

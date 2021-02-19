@@ -18,7 +18,7 @@ class TPCDSBenchmark(AbstractBenchmark):
     return 500
 
   def max_runs(self):
-    return 1
+    return 100
 
   def scale(self):
     return 1
@@ -32,7 +32,7 @@ class TPCDSBenchmark(AbstractBenchmark):
     return {
       'ss_ticket_number-2': {
         'store_sales': [['ss_ticket_number', 2]]
-      }
+      },
     }
 
     # final store sales top 20 3d replacements
